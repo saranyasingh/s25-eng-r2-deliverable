@@ -45,7 +45,7 @@ export default function SpeciesCard({ species, user }: { species: Species; user:
 
   // Implemented comment functionality
   const [comments, setComments] = useState<{ text: string; user: string; timestamp: string }[]>(
-    species.comments ? JSON.parse(species.comments) : []
+    species.comments ? (JSON.parse(species.comments) as { text: string; user: string; timestamp: string }[]) : []
   );
   const [newComment, setNewComment] = useState("");
 
@@ -66,24 +66,37 @@ export default function SpeciesCard({ species, user }: { species: Species; user:
       }
     };
 
-    fetchDisplayNames();
+    void fetchDisplayNames();
   }, [comments, species.author]); // Depend on `species.author`
 
 
   // When the species data is updated, updates the database
   const handleUpdateSpecies = async (updatedData: Partial<typeof editableSpecies>) => {
-    const { error } = await supabase.from("species").update(updatedData).eq("id", species.id);
+    const formattedData = {
+      ...updatedData,
+      endangered: typeof updatedData.endangered === "string"
+        ? updatedData.endangered === "true"
+        : updatedData.endangered,
+      total_population: typeof updatedData.total_population === "string"
+        ? parseInt(updatedData.total_population, 10) || null // Convert string to number, default to null if invalid
+        : updatedData.total_population, // Keep number/null/undefined as is
+    };
+
+    const { error } = await supabase.from("species").update(formattedData).eq("id", species.id);
     if (error) {
       console.error("Error updating species information:", error);
     }
   };
 
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const updatedData = { ...editableSpecies, [e.target.name]: e.target.value };
     setEditableSpecies(updatedData);
-    handleUpdateSpecies(updatedData);
-    router.refresh();
+
+    void handleUpdateSpecies(updatedData);
+    void router.refresh();
   };
+
   // Updates database when a comment is submitted
   const handleCommentSubmit = async () => {
     if (!newComment.trim()) return;
@@ -216,9 +229,12 @@ export default function SpeciesCard({ species, user }: { species: Species; user:
                   name="kingdom"
                   value={editableSpecies.kingdom}
                   onChange={(e) => {
-                    const updatedData = { ...editableSpecies, kingdom: e.target.value };
+                    const updatedData = {
+                      ...editableSpecies,
+                      kingdom: e.target.value as "Animalia" | "Plantae" | "Fungi" | "Protista" | "Archaea" | "Bacteria"
+                    };
                     setEditableSpecies(updatedData);
-                    handleUpdateSpecies(updatedData);
+                    void handleUpdateSpecies(updatedData);
                   }}
                   className="mt-1 w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                 >
@@ -250,7 +266,7 @@ export default function SpeciesCard({ species, user }: { species: Species; user:
                   onChange={(e) => {
                     const updatedData = { ...editableSpecies, endangered: e.target.value === "true" };
                     setEditableSpecies(updatedData);
-                    handleUpdateSpecies(updatedData);
+                    void handleUpdateSpecies(updatedData);
                   }}
                   className="mt-1 w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                 >
@@ -307,7 +323,7 @@ export default function SpeciesCard({ species, user }: { species: Species; user:
             <div className="mt-3">
               {comments.map((comment, index) => (
                 <div key={index} className="mb-2 border-b pb-2">
-                  <p><strong>{userDisplayNames[comment.user] || "Unknown"}:</strong> {comment.text}</p>
+                  <p><strong>{userDisplayNames[comment.user] ?? "Unknown"}:</strong> {comment.text}</p>
                   <p className="text-xs text-gray-500">{new Date(comment.timestamp).toLocaleString()}</p>
 
                   {/* Delete button only for the comment author */}

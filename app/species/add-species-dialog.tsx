@@ -90,14 +90,26 @@ export default function AddSpeciesDialog({ userId }: { userId: string }) {
     if (!searchTerm.trim()) return;
     setLoading(true);
     try {
-      const response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchTerm)}`);
+      const response = await fetch(
+        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchTerm)}`
+      );
       if (!response.ok) throw new Error("No Wikipedia article found.");
-      const data = await response.json();
-      form.setValue("description", data.extract || "");
-      form.setValue("image", data.thumbnail?.source || "");
-      toast({ title: "Autofill successful!", description: "Description and image updated from Wikipedia." });
+
+      const data = (await response.json()) as { extract?: string; thumbnail?: { source?: string } };
+
+      form.setValue("description", data.extract ?? "");
+      form.setValue("image", data.thumbnail?.source ?? "");
+
+      toast({
+        title: "Autofill successful!",
+        description: "Description and image updated from Wikipedia.",
+      });
     } catch (error) {
-      toast({ title: "Error", description: "No Wikipedia article found.", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "No Wikipedia article found.",
+        variant: "destructive",
+      });
     }
     setLoading(false);
   };
@@ -148,10 +160,12 @@ export default function AddSpeciesDialog({ userId }: { userId: string }) {
         <div className="flex gap-2 mb-4">
           <Input placeholder="Search Wikipedia" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           {/* Implements button to autofill Wikipedia information */}
-          <Button onClick={fetchWikipediaData} disabled={loading}>{loading ? "Searching..." : "Search"}</Button>
+          <Button onClick={() => { void fetchWikipediaData(); }} disabled={loading}>
+            {loading ? "Searching..." : "Search"}
+          </Button>
         </div>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
+          <form onSubmit={(e) => { void form.handleSubmit(onSubmit)(e); }}>
             <FormField control={form.control} name="scientific_name" render={({ field }) => (
               <FormItem>
                 <FormLabel>Scientific Name</FormLabel>
@@ -176,13 +190,17 @@ export default function AddSpeciesDialog({ userId }: { userId: string }) {
                   );
                 }}
               />
+
             <FormField control={form.control} name="image" render={({ field }) => (
               <FormItem>
                 <FormLabel>Image URL</FormLabel>
-                <FormControl><Input placeholder="https://..." {...field} /></FormControl>
+                <FormControl>
+                  <Input placeholder="https://..." {...field} value={field.value ?? ""} />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )} />
+
             <FormField
                 control={form.control}
                 name="kingdom"
@@ -259,7 +277,9 @@ export default function AddSpeciesDialog({ userId }: { userId: string }) {
             <FormField control={form.control} name="description" render={({ field }) => (
               <FormItem>
                 <FormLabel>Description</FormLabel>
-                <FormControl><Textarea placeholder="Species description" {...field} /></FormControl>
+                <FormControl>
+                  <Textarea placeholder="Species description" {...field} value={field.value ?? ""} />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )} />
