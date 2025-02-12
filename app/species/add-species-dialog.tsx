@@ -19,7 +19,7 @@ import { toast } from "@/components/ui/use-toast";
 import { createBrowserSupabaseClient } from "@/lib/client-utils";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { useState, type BaseSyntheticEvent } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -43,6 +43,9 @@ const speciesSchema = z.object({
     .transform((val) => (!val || val.trim() === "" ? null : val.trim())),
   kingdom: kingdoms,
   total_population: z.number().int().positive().min(1).nullable(),
+
+  // STRETCH GOAL IMPLEMENTED -- boolean for endangered added to species submission form
+  endangered: z.boolean(),
   image: z
     .string()
     .url()
@@ -60,8 +63,8 @@ type FormData = z.infer<typeof speciesSchema>;
 
 // Default values for the form fields.
 /* Because the react-hook-form (RHF) used here is a controlled form (not an uncontrolled form),
-fields that are nullable/not required should explicitly be set to `null` by default.
-Otherwise, they will be `undefined` by default, which will raise warnings because `undefined` conflicts with controlled components.
+fields that are nullable/not required should explicitly be set to null by default.
+Otherwise, they will be undefined by default, which will raise warnings because undefined conflicts with controlled components.
 All form fields should be set to non-undefined default values.
 Read more here: https://legacy.react-hook-form.com/api/useform/
 */
@@ -70,37 +73,39 @@ const defaultValues: Partial<FormData> = {
   common_name: null,
   kingdom: "Animalia",
   total_population: null,
+  endangered: false,
   image: null,
   description: null,
 };
 
 export default function AddSpeciesDialog({ userId }: { userId: string }) {
   const router = useRouter();
-
-  // Control open/closed state of the dialog
   const [open, setOpen] = useState<boolean>(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const form = useForm<FormData>({ resolver: zodResolver(speciesSchema), defaultValues, mode: "onChange" });
 
-  // Instantiate form functionality with React Hook Form, passing in the Zod schema (for validation) and default values
-  const form = useForm<FormData>({
-    resolver: zodResolver(speciesSchema),
-    defaultValues,
-    mode: "onChange",
-  });
+  // DIFFICULT STRETCH GOAL IMPLEMENTED -- uses wikipedia API to search wikipedia and autofill values
+  const fetchWikipediaData = async () => {
+    if (!searchTerm.trim()) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchTerm)}`);
+      if (!response.ok) throw new Error("No Wikipedia article found.");
+      const data = await response.json();
+      form.setValue("description", data.extract || "");
+      form.setValue("image", data.thumbnail?.source || "");
+      toast({ title: "Autofill successful!", description: "Description and image updated from Wikipedia." });
+    } catch (error) {
+      toast({ title: "Error", description: "No Wikipedia article found.", variant: "destructive" });
+    }
+    setLoading(false);
+  };
 
   const onSubmit = async (input: FormData) => {
-    // The `input` prop contains data that has already been processed by zod. We can now use it in a supabase query
+    // The input prop contains data that has already been processed by zod. We can now use it in a supabase query
     const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.from("species").insert([
-      {
-        author: userId,
-        common_name: input.common_name,
-        description: input.description,
-        kingdom: input.kingdom,
-        scientific_name: input.scientific_name,
-        total_population: input.total_population,
-        image: input.image,
-      },
-    ]);
+    const { error } = await supabase.from("species").insert([{ author: userId, ...input }]);
 
     // Catch and report errors from Supabase and exit the onSubmit function with an early 'return' if an error occurred.
     if (error) {
@@ -110,7 +115,6 @@ export default function AddSpeciesDialog({ userId }: { userId: string }) {
         variant: "destructive",
       });
     }
-
     // Because Supabase errors were caught above, the remainder of the function will only execute upon a successful edit
 
     // Reset form values to the default (empty) values.
@@ -133,38 +137,33 @@ export default function AddSpeciesDialog({ userId }: { userId: string }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="secondary">
-          <Icons.add className="mr-3 h-5 w-5" />
-          Add Species
+          <Icons.add className="mr-3 h-5 w-5" /> Add Species
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-screen overflow-y-auto sm:max-w-[600px]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Add Species</DialogTitle>
-          <DialogDescription>
-            Add a new species here. Click &quot;Add Species&quot; below when you&apos;re done.
-          </DialogDescription>
+          <DialogDescription>Use Wikipedia autofill to speed up data entry.</DialogDescription>
         </DialogHeader>
+        <div className="flex gap-2 mb-4">
+          <Input placeholder="Search Wikipedia" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          {/* Implements button to autofill Wikipedia information */}
+          <Button onClick={fetchWikipediaData} disabled={loading}>{loading ? "Searching..." : "Search"}</Button>
+        </div>
         <Form {...form}>
-          <form onSubmit={(e: BaseSyntheticEvent) => void form.handleSubmit(onSubmit)(e)}>
-            <div className="grid w-full items-center gap-4">
-              <FormField
-                control={form.control}
-                name="scientific_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Scientific Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Cavia porcellus" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <FormField control={form.control} name="scientific_name" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Scientific Name</FormLabel>
+                <FormControl><Input placeholder="Cavia porcellus" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField
                 control={form.control}
                 name="common_name"
                 render={({ field }) => {
-                  // We must extract value from field and convert a potential defaultValue of `null` to "" because inputs can't handle null values: https://github.com/orgs/react-hook-form/discussions/4091
+                  // We must extract value from field and convert a potential defaultValue of null to "" because inputs can't handle null values: https://github.com/orgs/react-hook-form/discussions/4091
                   const { value, ...rest } = field;
                   return (
                     <FormItem>
@@ -177,7 +176,14 @@ export default function AddSpeciesDialog({ userId }: { userId: string }) {
                   );
                 }}
               />
-              <FormField
+            <FormField control={form.control} name="image" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Image URL</FormLabel>
+                <FormControl><Input placeholder="https://..." {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField
                 control={form.control}
                 name="kingdom"
                 render={({ field }) => (
@@ -203,6 +209,30 @@ export default function AddSpeciesDialog({ userId }: { userId: string }) {
                   </FormItem>
                 )}
               />
+              {/* Stretch goal implemented -- includes an option to select whether or not a species is endangered*/}
+              <FormField
+                control={form.control}
+                name="endangered"
+                render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Endangered</FormLabel>
+                  <Select onValueChange={(value) => field.onChange(value === "true")} value={String(field.value)}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="true">Endangered</SelectItem>
+                        <SelectItem value="false">Not Endangered</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
               <FormField
                 control={form.control}
                 name="total_population"
@@ -226,58 +256,18 @@ export default function AddSpeciesDialog({ userId }: { userId: string }) {
                   );
                 }}
               />
-              <FormField
-                control={form.control}
-                name="image"
-                render={({ field }) => {
-                  // We must extract value from field and convert a potential defaultValue of `null` to "" because inputs can't handle null values: https://github.com/orgs/react-hook-form/discussions/4091
-                  const { value, ...rest } = field;
-                  return (
-                    <FormItem>
-                      <FormLabel>Image URL</FormLabel>
-                      <FormControl>
-                        <Input
-                          value={value ?? ""}
-                          placeholder="https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/George_the_amazing_guinea_pig.jpg/440px-George_the_amazing_guinea_pig.jpg"
-                          {...rest}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
-              />
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => {
-                  // We must extract value from field and convert a potential defaultValue of `null` to "" because textareas can't handle null values: https://github.com/orgs/react-hook-form/discussions/4091
-                  const { value, ...rest } = field;
-                  return (
-                    <FormItem>
-                      <FormLabel>Description</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          value={value ?? ""}
-                          placeholder="The guinea pig or domestic guinea pig, also known as the cavy or domestic cavy, is a species of rodent belonging to the genus Cavia in the family Caviidae."
-                          {...rest}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
-              />
-              <div className="flex">
-                <Button type="submit" className="ml-1 mr-1 flex-auto">
-                  Add Species
-                </Button>
-                <DialogClose asChild>
-                  <Button type="button" className="ml-1 mr-1 flex-auto" variant="secondary">
-                    Cancel
-                  </Button>
-                </DialogClose>
-              </div>
+            <FormField control={form.control} name="description" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Description</FormLabel>
+                <FormControl><Textarea placeholder="Species description" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <div className="flex">
+              <Button type="submit" className="flex-auto">Add Species</Button>
+              <DialogClose asChild>
+                <Button type="button" className="flex-auto" variant="secondary">Cancel</Button>
+              </DialogClose>
             </div>
           </form>
         </Form>

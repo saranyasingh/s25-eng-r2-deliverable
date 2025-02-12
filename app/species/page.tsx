@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import AddSpeciesDialog from "./add-species-dialog";
 import SpeciesCard from "./species-card";
 
+
 export default async function SpeciesList() {
   // Create supabase server component client and obtain user session from stored cookie
   const supabase = createServerSupabaseClient();
@@ -30,7 +31,8 @@ export default async function SpeciesList() {
       </div>
       <Separator className="my-4" />
       <div className="flex flex-wrap justify-center">
-        {species?.map((species) => <SpeciesCard key={species.id} species={species} />)}
+        {/* Passes in userId based on sessionId in order to implement editing */}
+        {species?.map((species) => <SpeciesCard key={species.id} species={species} user={sessionId} />)}
       </div>
     </>
   );
